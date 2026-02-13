@@ -1,0 +1,32 @@
+name: Daily On-Off Fetch
+
+on:
+  schedule:
+    - cron: '45 12 * * *'   # 4:45 AM PST = 12:45 UTC
+  workflow_dispatch:
+    inputs:
+      year:
+        description: 'Season year (e.g. 2026)'
+        default: '2026'
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install requests pandas
+
+      - name: Fetch on-off data
+        run: python fetch_onoff.py --year ${{ inputs.year || '2026' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: onoff-${{ inputs.year || '2026' }}
+          path: output/
+          retention-days: 30
