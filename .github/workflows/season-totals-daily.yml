@@ -1,0 +1,43 @@
+name: Daily Season Totals
+
+on:
+  schedule:
+    - cron: '30 12 * * *'   # 4:30 AM PST = 12:30 UTC (runs before on-off at 12:45)
+  workflow_dispatch:
+    inputs:
+      year:
+        description: 'Season year (e.g. 2026)'
+        default: '2026'
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install requests pandas
+
+      - name: Fetch season totals
+        run: python fetch_season_totals.py --year ${{ inputs.year || '2026' }}
+
+      - name: Commit updated CSVs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "Update season totals $(date -u +%Y-%m-%d)"
+          git push
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: season-totals-${{ inputs.year || '2026' }}
+          path: data/
+          retention-days: 30
