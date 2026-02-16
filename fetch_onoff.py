@@ -23,9 +23,21 @@ import argparse
 import os
 import sys
 import time
+from datetime import datetime
 
 import pandas as pd
 import requests
+
+
+def current_nba_season():
+    """Auto-detect the current NBA season year.
+
+    NBA seasons span two calendar years (e.g. 2025-26 season = year 2026).
+    Oct-Dec: upcoming season (next calendar year).
+    Jan-Sep: current season (current calendar year).
+    """
+    now = datetime.utcnow()
+    return now.year + 1 if now.month >= 10 else now.year
 
 # ---------------------------------------------------------------------------
 # Config
@@ -186,10 +198,10 @@ def pull_block(team_ids, year, leverage=False):
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch PBPStats on-off data")
-    parser.add_argument("--year", type=int, default=2026, help="Season year (default: 2026)")
+    parser.add_argument("--year", type=int, default=None, help="Season year (auto-detects if omitted)")
     args = parser.parse_args()
 
-    year = args.year
+    year = args.year or current_nba_season()
     print(f"=== PBPStats On-Off Fetch: {year - 1}-{str(year)[-2:]} season ===\n")
 
     team_ids = fetch_team_ids()

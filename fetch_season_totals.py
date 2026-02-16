@@ -12,10 +12,22 @@ Each run replaces the current year's row with fresh data.
 
 import argparse
 import time
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 import requests
+
+
+def current_nba_season():
+    """Auto-detect the current NBA season year.
+
+    NBA seasons span two calendar years (e.g. 2025-26 season = year 2026).
+    Oct-Dec: upcoming season (next calendar year).
+    Jan-Sep: current season (current calendar year).
+    """
+    now = datetime.utcnow()
+    return now.year + 1 if now.month >= 10 else now.year
 
 HEADERS = {
     "User-Agent": (
@@ -104,9 +116,9 @@ def update_csv(csv_path, new_data, year):
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch PBPStats season totals")
-    parser.add_argument("--year", type=int, default=2026, help="Season year (default 2026)")
+    parser.add_argument("--year", type=int, default=None, help="Season year (auto-detects if omitted)")
     args = parser.parse_args()
-    year = args.year
+    year = args.year or current_nba_season()
 
     print(f"=== fetch_season_totals.py (year={year}) ===\n")
 

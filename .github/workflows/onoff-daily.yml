@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
     inputs:
       year:
-        description: 'Season year (e.g. 2026)'
-        default: '2026'
+        description: 'Season year (auto-detects if empty)'
+        default: ''
 
 jobs:
   fetch:
@@ -22,11 +22,15 @@ jobs:
 
       - run: pip install requests pandas
 
+      - name: Detect season year
+        id: season
+        run: python -c "from fetch_onoff import current_nba_season; print(f'year={current_nba_season()}')" >> "$GITHUB_OUTPUT"
+
       - name: Fetch on-off data
-        run: python fetch_onoff.py --year ${{ inputs.year || '2026' }}
+        run: python fetch_onoff.py ${{ inputs.year && format('--year {0}', inputs.year) || '' }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: onoff-${{ inputs.year || '2026' }}
+          name: onoff-${{ inputs.year || steps.season.outputs.year }}
           path: output/
           retention-days: 30
