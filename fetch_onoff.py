@@ -8,6 +8,7 @@ Two blocks of calls:
   Block 2 (non-leverage): No Leverage param -> {team_id}.csv, {team_id}_vs.csv
 
 Each block: 30 teams x 2 (Team + Opponent) = 60 calls. Total: 120 calls.
+Teams that hit the 500-row API cap get automatic date-split re-fetches.
 
 Output:
   output/data/{year}/{team_id}.csv
@@ -25,6 +26,7 @@ import sys
 import time
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -48,6 +50,7 @@ INDEX_MASTER_URL = (
     "https://raw.githubusercontent.com/gabriel1200/player_sheets/master/lineups/index_master.csv"
 )
 REFERENCE_YEAR = 2025  # Always use this year's teams for team list
+ROW_CAP = 500  # PBPStats API row limit
 
 HEADERS = {
     "User-Agent": (
@@ -73,7 +76,8 @@ HEADERS = {
 SLEEP_BETWEEN = 1.0  # seconds between API calls
 MAX_RETRIES = 5
 RETRY_DELAY = 3  # seconds between retries
-REQUEST_TIMEOUT = (10, 30)  # (connect, read)
+REQUEST_TIMEOUT = (10, 60)  # (connect, read)
+SPLIT_TIMEOUT = (10, 90)  # longer timeout for date-filtered queries
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +96,23 @@ def fetch_team_ids(year=REFERENCE_YEAR):
     return team_ids
 
 
+def _api_call(params, timeout=REQUEST_TIMEOUT):
+    """Single PBPStats API call with retries."""
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = requests.get(
+                WOWY_URL, params=params, headers=HEADERS, timeout=timeout
+            )
+            resp.raise_for_status()
+            data = resp.json()["multi_row_table_data"]
+            return pd.DataFrame(data, index=[0] * len(data))
+        except Exception as e:
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_DELAY)
+            else:
+                raise
+
+
 def lineuppull(team_id, season, opp=False, leverage=False):
     """Fetch WOWY stats for one team from PBPStats."""
     params = {
@@ -103,14 +124,70 @@ def lineuppull(team_id, season, opp=False, leverage=False):
     if leverage:
         params["Leverage"] = "Medium,High,VeryHigh"
 
-    resp = requests.get(
-        WOWY_URL, params=params, headers=HEADERS, timeout=REQUEST_TIMEOUT
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    combos = data["multi_row_table_data"]
-    df = pd.DataFrame(combos, index=[0] * len(combos))
-    return df
+    return _api_call(params)
+
+
+def _combine_split_halves(dfs):
+    """Combine date-split DataFrames by summing numeric columns per EntityId."""
+    combined = pd.concat(dfs, ignore_index=True)
+    entity_col = "EntityId"
+    non_numeric = [entity_col]
+    numeric_cols = combined.select_dtypes(include=[np.number]).columns.tolist()
+
+    # Group by EntityId: sum numeric columns, take first for non-numeric
+    agg_dict = {c: "sum" for c in numeric_cols}
+    # Keep first value for any non-numeric, non-EntityId columns
+    for c in combined.columns:
+        if c not in numeric_cols and c != entity_col:
+            agg_dict[c] = "first"
+
+    result = combined.groupby(entity_col, as_index=False).agg(agg_dict)
+    return result
+
+
+def lineuppull_full(team_id, year, season, opp=False, leverage=False):
+    """
+    Fetch WOWY stats, handling the 500-row API cap.
+
+    If the initial pull returns exactly 500 rows, re-fetches using date splits
+    (first half / second half of season) and combines results.
+    """
+    df = lineuppull(team_id, season, opp=opp, leverage=leverage)
+
+    if len(df) < ROW_CAP:
+        return df
+
+    # Hit the cap — re-fetch with date splits
+    side = "Opponent" if opp else "Team"
+    tag = "leverage" if leverage else "non-leverage"
+    print(f"    {team_id} ({side}/{tag}): hit {ROW_CAP}-row cap, splitting by date...")
+
+    splits = [
+        (f"{year - 1}-10-01", f"{year}-01-15"),
+        (f"{year}-01-16", f"{year}-06-30"),
+    ]
+
+    split_dfs = []
+    for from_d, to_d in splits:
+        time.sleep(SLEEP_BETWEEN)
+        params = {
+            "TeamId": team_id,
+            "Season": season,
+            "SeasonType": "Regular Season",
+            "Type": "Opponent" if opp else "Team",
+            "FromDate": from_d,
+            "ToDate": to_d,
+        }
+        if leverage:
+            params["Leverage"] = "Medium,High,VeryHigh"
+
+        split_df = _api_call(params, timeout=SPLIT_TIMEOUT)
+        print(f"      {from_d} to {to_d}: {len(split_df)} lineups")
+        split_dfs.append(split_df)
+
+    combined = _combine_split_halves(split_dfs)
+    print(f"    Combined: {len(combined)} unique lineups (was capped at {ROW_CAP})")
+    return combined
 
 
 def get_filename(team_id, opp=False, leverage=False):
@@ -151,20 +228,12 @@ def pull_block(team_ids, year, leverage=False):
             filename = get_filename(team_id, opp=opp, leverage=leverage)
             filepath = os.path.join(output_dir, filename)
 
-            attempts = 0
-            success = False
-            while attempts < MAX_RETRIES and not success:
-                try:
-                    df = lineuppull(team_id, season, opp=opp, leverage=leverage)
-                    success = True
-                except Exception as e:
-                    attempts += 1
-                    print(f"  Attempt {attempts} failed for {team_id} ({side}): {e}")
-                    if attempts < MAX_RETRIES:
-                        time.sleep(RETRY_DELAY)
-
-            if not success:
-                print(f"  FAILED {team_id} ({side}) after {MAX_RETRIES} attempts")
+            try:
+                df = lineuppull_full(
+                    team_id, year, season, opp=opp, leverage=leverage
+                )
+            except Exception as e:
+                print(f"  FAILED {team_id} ({side}): {e}")
                 fail_list.append((team_id, side))
                 continue
 
@@ -206,7 +275,7 @@ def main():
 
     team_ids = fetch_team_ids()
     total_calls = len(team_ids) * 2 * 2  # teams * sides * blocks
-    print(f"Will make {total_calls} API calls\n")
+    print(f"Will make ~{total_calls}+ API calls (more if teams hit {ROW_CAP}-row cap)\n")
 
     start = time.time()
 
