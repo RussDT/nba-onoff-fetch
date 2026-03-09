@@ -127,22 +127,201 @@ def lineuppull(team_id, season, opp=False, leverage=False):
     return _api_call(params)
 
 
+FIRST_VALUE_NUMERIC_COLUMNS = {"TeamId"}
+RATE_COLUMN_EXTRAS = {
+    "Pace",
+    "Usage",
+    "SecondsPerPossOff",
+    "SecondsPerPossDef",
+    "SecondsExcludingORebsPerPossOff",
+    "SecondsExcludingORebsPerPossDef",
+}
+
+
+def _is_derived_numeric_column(column):
+    return column in RATE_COLUMN_EXTRAS or any(
+        token in column for token in ("Pct", "Frequency", "Accuracy", "Avg")
+    )
+
+
+def _numeric_series(df, column):
+    if column not in df.columns:
+        return pd.Series(0.0, index=df.index, dtype=float)
+    return pd.to_numeric(df[column], errors="coerce").fillna(0.0)
+
+
+def _safe_divide(numerator, denominator):
+    numerator = pd.to_numeric(numerator, errors="coerce")
+    denominator = pd.to_numeric(denominator, errors="coerce").replace(0, np.nan)
+    return (numerator / denominator).replace([np.inf, -np.inf], np.nan)
+
+
+def _weighted_average_by_group(df, entity_col, value_col, weight):
+    if value_col not in df.columns:
+        return pd.Series(dtype=float)
+
+    values = pd.to_numeric(df[value_col], errors="coerce")
+    weights = pd.to_numeric(weight, errors="coerce").fillna(0.0).clip(lower=0.0)
+    valid = values.notna() & (weights > 0)
+    if not valid.any():
+        return pd.Series(dtype=float)
+
+    tmp = pd.DataFrame(
+        {
+            entity_col: df.loc[valid, entity_col],
+            "_weighted_value": values.loc[valid] * weights.loc[valid],
+            "_weight": weights.loc[valid],
+        }
+    )
+    grouped = tmp.groupby(entity_col, as_index=True)[["_weighted_value", "_weight"]].sum()
+    return grouped["_weighted_value"] / grouped["_weight"]
+
+
+def _first_non_null_by_group(df, entity_col, column):
+    if column not in df.columns:
+        return pd.Series(dtype=float)
+
+    values = pd.to_numeric(df[column], errors="coerce")
+    tmp = pd.DataFrame({entity_col: df[entity_col], "_value": values})
+    tmp = tmp[tmp["_value"].notna()]
+    if tmp.empty:
+        return pd.Series(dtype=float)
+    return tmp.groupby(entity_col, as_index=True)["_value"].first()
+
+
+def _assign_weighted_with_fallback(result, combined, entity_col, column, weight):
+    if column not in result.columns or column not in combined.columns:
+        return False
+
+    assigned = False
+    assigned_mask = pd.Series(False, index=result.index)
+
+    weighted = _weighted_average_by_group(combined, entity_col, column, weight)
+    if not weighted.empty:
+        mapped = result[entity_col].map(weighted)
+        valid = mapped.notna()
+        if valid.any():
+            result.loc[valid, column] = mapped.loc[valid]
+            assigned_mask.loc[valid] = True
+            assigned = True
+
+    fallback = _first_non_null_by_group(combined, entity_col, column)
+    if not fallback.empty:
+        mapped = result[entity_col].map(fallback)
+        valid = mapped.notna() & ~assigned_mask
+        if valid.any():
+            result.loc[valid, column] = mapped.loc[valid]
+            assigned = True
+
+    return assigned
+
+
+def _recompute_split_rates(result, combined, entity_col):
+    """Rebuild the lineup rate fields that our downstream upload depends on."""
+    handled = set()
+
+    fga = _numeric_series(result, "FG2A") + _numeric_series(result, "FG3A")
+    fgm = _numeric_series(result, "FG2M") + _numeric_series(result, "FG3M")
+    fg_misses = (fga - fgm).clip(lower=0.0)
+    fta = _numeric_series(result, "FTA")
+    and1_two = _numeric_series(result, "2pt And 1 Free Throw Trips")
+    and1_three = _numeric_series(result, "3pt And 1 Free Throw Trips")
+    non_and1_fta = (fta - and1_two - and1_three).clip(lower=0.0)
+    tsa = fga + and1_two + 1.5 * and1_three + 0.44 * non_and1_fta
+
+    def set_ratio(column, numerator, denominator):
+        if column not in result.columns:
+            return
+        result[column] = _safe_divide(numerator, denominator)
+        handled.add(column)
+
+    if "Minutes" in result.columns and "SecondsPlayed" in result.columns:
+        result["Minutes"] = _numeric_series(result, "SecondsPlayed") / 60.0
+
+    set_ratio("TsPct", _numeric_series(result, "Points"), 2.0 * tsa)
+    set_ratio("OffFGReboundPct", _numeric_series(result, "OffRebounds"), fg_misses)
+    set_ratio("EfgPct", _numeric_series(result, "FG2M") + 1.5 * _numeric_series(result, "FG3M"), fga)
+    set_ratio("Fg2Pct", _numeric_series(result, "FG2M"), _numeric_series(result, "FG2A"))
+    set_ratio("Fg3Pct", _numeric_series(result, "FG3M"), _numeric_series(result, "FG3A"))
+    set_ratio("FG3APct", _numeric_series(result, "FG3A"), fga)
+
+    set_ratio("AtRimFrequency", _numeric_series(result, "AtRimFGA"), fga)
+    set_ratio("AtRimAccuracy", _numeric_series(result, "AtRimFGM"), _numeric_series(result, "AtRimFGA"))
+    set_ratio(
+        "ShortMidRangeFrequency",
+        _numeric_series(result, "ShortMidRangeFGA"),
+        fga,
+    )
+    set_ratio(
+        "ShortMidRangeAccuracy",
+        _numeric_series(result, "ShortMidRangeFGM"),
+        _numeric_series(result, "ShortMidRangeFGA"),
+    )
+    set_ratio(
+        "LongMidRangeFrequency",
+        _numeric_series(result, "LongMidRangeFGA"),
+        fga,
+    )
+    set_ratio(
+        "LongMidRangeAccuracy",
+        _numeric_series(result, "LongMidRangeFGM"),
+        _numeric_series(result, "LongMidRangeFGA"),
+    )
+    set_ratio("Arc3Frequency", _numeric_series(result, "Arc3FGA"), fga)
+    set_ratio("Arc3Accuracy", _numeric_series(result, "Arc3FGM"), _numeric_series(result, "Arc3FGA"))
+    set_ratio("Corner3Frequency", _numeric_series(result, "Corner3FGA"), fga)
+    set_ratio("Corner3Accuracy", _numeric_series(result, "Corner3FGM"), _numeric_series(result, "Corner3FGA"))
+
+    shot_weight = _numeric_series(combined, "FG2A") + _numeric_series(combined, "FG3A")
+    if _assign_weighted_with_fallback(
+        result, combined, entity_col, "ShotQualityAvg", shot_weight
+    ):
+        handled.add("ShotQualityAvg")
+
+    default_weight = _numeric_series(combined, "SecondsPlayed")
+    if default_weight.eq(0).all():
+        default_weight = pd.Series(1.0, index=combined.index, dtype=float)
+
+    for column in result.columns:
+        if (
+            column in handled
+            or not _is_derived_numeric_column(column)
+            or column not in combined.columns
+        ):
+            continue
+        _assign_weighted_with_fallback(result, combined, entity_col, column, default_weight)
+
+    return result
+
+
 def _combine_split_halves(dfs):
-    """Combine date-split DataFrames by summing numeric columns per EntityId."""
+    """
+    Combine date-split DataFrames without corrupting rate columns.
+
+    Additive box-score counts are summed by `EntityId`. The lineup rate fields we
+    use downstream are then rebuilt from the summed counts, and any remaining
+    rate-like numeric columns fall back to a seconds-played weighted average so
+    they no longer get summed into nonsense.
+    """
     combined = pd.concat(dfs, ignore_index=True)
     entity_col = "EntityId"
-    non_numeric = [entity_col]
+    original_columns = combined.columns.tolist()
     numeric_cols = combined.select_dtypes(include=[np.number]).columns.tolist()
+    sum_numeric_cols = [
+        c
+        for c in numeric_cols
+        if c not in FIRST_VALUE_NUMERIC_COLUMNS and not _is_derived_numeric_column(c)
+    ]
 
-    # Group by EntityId: sum numeric columns, take first for non-numeric
-    agg_dict = {c: "sum" for c in numeric_cols}
-    # Keep first value for any non-numeric, non-EntityId columns
-    for c in combined.columns:
-        if c not in numeric_cols and c != entity_col:
-            agg_dict[c] = "first"
+    agg_dict = {}
+    for column in combined.columns:
+        if column == entity_col:
+            continue
+        agg_dict[column] = "sum" if column in sum_numeric_cols else "first"
 
     result = combined.groupby(entity_col, as_index=False).agg(agg_dict)
-    return result
+    result = _recompute_split_rates(result, combined, entity_col)
+    return result[original_columns]
 
 
 def lineuppull_full(team_id, year, season, opp=False, leverage=False):
