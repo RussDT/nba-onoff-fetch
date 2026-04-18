@@ -51,6 +51,7 @@ INDEX_MASTER_URL = (
 )
 REFERENCE_YEAR = 2025  # Always use this year's teams for team list
 ROW_CAP = 500  # PBPStats API row limit
+DEFAULT_SEASON_TYPE = "Regular Season"
 
 HEADERS = {
     "User-Agent": (
@@ -118,7 +119,7 @@ def lineuppull(team_id, season, opp=False, leverage=False):
     params = {
         "TeamId": team_id,
         "Season": season,
-        "SeasonType": "Regular Season",
+        "SeasonType": DEFAULT_SEASON_TYPE,
         "Type": "Opponent" if opp else "Team",
     }
     if leverage:
@@ -352,7 +353,7 @@ def lineuppull_full(team_id, year, season, opp=False, leverage=False):
         params = {
             "TeamId": team_id,
             "Season": season,
-            "SeasonType": "Regular Season",
+            "SeasonType": DEFAULT_SEASON_TYPE,
             "Type": "Opponent" if opp else "Team",
             "FromDate": from_d,
             "ToDate": to_d,
@@ -450,7 +451,7 @@ def main():
     args = parser.parse_args()
 
     year = args.year or current_nba_season()
-    print(f"=== PBPStats On-Off Fetch: {year - 1}-{str(year)[-2:]} season ===\n")
+    print(f"=== PBPStats On-Off Fetch: {year - 1}-{str(year)[-2:]} season (SeasonType={DEFAULT_SEASON_TYPE}) ===\n")
 
     team_ids = fetch_team_ids()
     total_calls = len(team_ids) * 2 * 2  # teams * sides * blocks
