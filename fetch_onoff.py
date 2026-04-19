@@ -3,20 +3,14 @@ PBPStats On-Off Fetch
 =====================
 Fetches WOWY (With Or Without You) data from PBPStats API for all NBA teams.
 
-Four blocks of calls:
-  RS leverage: Leverage='Medium,High,VeryHigh' -> {team_id}_leverage.csv, {team_id}_vs_leverage.csv
-  RS non-leverage: No Leverage param -> {team_id}.csv, {team_id}_vs.csv
+Two blocks of calls:
   PS leverage: Leverage='Medium,High,VeryHigh' -> {team_id}_ps_leverage.csv, {team_id}_vs_ps_leverage.csv
   PS non-leverage: No Leverage param -> {team_id}_ps.csv, {team_id}_vs_ps.csv
 
-Each block: 30 teams x 2 (Team + Opponent) = 60 calls. Total: 240 calls.
+Each block: 30 teams x 2 (Team + Opponent) = 60 calls. Total: 120 calls.
 Teams that hit the 500-row API cap get automatic date-split re-fetches.
 
 Output:
-  output/data/{year}/{team_id}.csv
-  output/data/{year}/{team_id}_vs.csv
-  output/data/{year}/{team_id}_leverage.csv
-  output/data/{year}/{team_id}_vs_leverage.csv
   output/data/{year}/{team_id}_ps.csv
   output/data/{year}/{team_id}_vs_ps.csv
   output/data/{year}/{team_id}_ps_leverage.csv
@@ -57,7 +51,6 @@ INDEX_MASTER_URL = (
 )
 REFERENCE_YEAR = 2025  # Always use this year's teams for team list
 ROW_CAP = 500  # PBPStats API row limit
-DEFAULT_SEASON_TYPE = "Regular Season"
 PLAYOFFS_SEASON_TYPE = "Playoffs"
 
 HEADERS = {
@@ -473,7 +466,6 @@ def main():
 
     all_fails = []
     season_configs = [
-        (DEFAULT_SEASON_TYPE, False),
         (PLAYOFFS_SEASON_TYPE, True),
     ]
     block_num = 1
