@@ -3,11 +3,13 @@ PBPStats On-Off Fetch
 =====================
 Fetches WOWY (With Or Without You) data from PBPStats API for all NBA teams.
 
-Two blocks of calls:
-  Block 1 (leverage): Leverage='Medium,High,VeryHigh' -> {team_id}_leverage.csv, {team_id}_vs_leverage.csv
-  Block 2 (non-leverage): No Leverage param -> {team_id}.csv, {team_id}_vs.csv
+Four blocks of calls:
+  RS leverage: Leverage='Medium,High,VeryHigh' -> {team_id}_leverage.csv, {team_id}_vs_leverage.csv
+  RS non-leverage: No Leverage param -> {team_id}.csv, {team_id}_vs.csv
+  PS leverage: Leverage='Medium,High,VeryHigh' -> {team_id}_ps_leverage.csv, {team_id}_vs_ps_leverage.csv
+  PS non-leverage: No Leverage param -> {team_id}_ps.csv, {team_id}_vs_ps.csv
 
-Each block: 30 teams x 2 (Team + Opponent) = 60 calls. Total: 120 calls.
+Each block: 30 teams x 2 (Team + Opponent) = 60 calls. Total: 240 calls.
 Teams that hit the 500-row API cap get automatic date-split re-fetches.
 
 Output:
@@ -15,6 +17,10 @@ Output:
   output/data/{year}/{team_id}_vs.csv
   output/data/{year}/{team_id}_leverage.csv
   output/data/{year}/{team_id}_vs_leverage.csv
+  output/data/{year}/{team_id}_ps.csv
+  output/data/{year}/{team_id}_vs_ps.csv
+  output/data/{year}/{team_id}_ps_leverage.csv
+  output/data/{year}/{team_id}_vs_ps_leverage.csv
 
 Usage:
   python fetch_onoff.py --year 2026
@@ -52,6 +58,7 @@ INDEX_MASTER_URL = (
 REFERENCE_YEAR = 2025  # Always use this year's teams for team list
 ROW_CAP = 500  # PBPStats API row limit
 DEFAULT_SEASON_TYPE = "Regular Season"
+PLAYOFFS_SEASON_TYPE = "Playoffs"
 
 HEADERS = {
     "User-Agent": (
@@ -114,12 +121,12 @@ def _api_call(params, timeout=REQUEST_TIMEOUT):
                 raise
 
 
-def lineuppull(team_id, season, opp=False, leverage=False):
+def lineuppull(team_id, season, season_type, opp=False, leverage=False):
     """Fetch WOWY stats for one team from PBPStats."""
     params = {
         "TeamId": team_id,
         "Season": season,
-        "SeasonType": DEFAULT_SEASON_TYPE,
+        "SeasonType": season_type,
         "Type": "Opponent" if opp else "Team",
     }
     if leverage:
@@ -325,14 +332,14 @@ def _combine_split_halves(dfs):
     return result[original_columns]
 
 
-def lineuppull_full(team_id, year, season, opp=False, leverage=False):
+def lineuppull_full(team_id, year, season, season_type, opp=False, leverage=False):
     """
     Fetch WOWY stats, handling the 500-row API cap.
 
     If the initial pull returns exactly 500 rows, re-fetches using date splits
     (first half / second half of season) and combines results.
     """
-    df = lineuppull(team_id, season, opp=opp, leverage=leverage)
+    df = lineuppull(team_id, season, season_type, opp=opp, leverage=leverage)
 
     if len(df) < ROW_CAP:
         return df
@@ -353,7 +360,7 @@ def lineuppull_full(team_id, year, season, opp=False, leverage=False):
         params = {
             "TeamId": team_id,
             "Season": season,
-            "SeasonType": DEFAULT_SEASON_TYPE,
+            "SeasonType": season_type,
             "Type": "Opponent" if opp else "Team",
             "FromDate": from_d,
             "ToDate": to_d,
@@ -370,11 +377,13 @@ def lineuppull_full(team_id, year, season, opp=False, leverage=False):
     return combined
 
 
-def get_filename(team_id, opp=False, leverage=False):
-    """Generate filename: {team_id}[_vs][_leverage].csv"""
+def get_filename(team_id, opp=False, leverage=False, playoffs=False):
+    """Generate filename: {team_id}[_vs][_ps][_leverage].csv"""
     name = str(team_id)
     if opp:
         name += "_vs"
+    if playoffs:
+        name += "_ps"
     if leverage:
         name += "_leverage"
     name += ".csv"
@@ -385,7 +394,7 @@ def get_filename(team_id, opp=False, leverage=False):
 # Fetch block
 # ---------------------------------------------------------------------------
 
-def pull_block(team_ids, year, leverage=False):
+def pull_block(team_ids, year, season_type, playoffs=False, leverage=False):
     """
     Run one block of fetches (leverage or non-leverage).
     For each team: Team + Opponent = 2 calls.
@@ -395,6 +404,7 @@ def pull_block(team_ids, year, leverage=False):
     output_dir = f"output/data/{year}"
     os.makedirs(output_dir, exist_ok=True)
 
+    season_label = "playoffs" if playoffs else "regular season"
     tag = "leverage" if leverage else "non-leverage"
     team_frames = []
     vs_frames = []
@@ -402,15 +412,15 @@ def pull_block(team_ids, year, leverage=False):
 
     for opp in [False, True]:
         side = "Opponent" if opp else "Team"
-        print(f"\n--- {tag} / {side} ---")
+        print(f"\n--- {season_label} / {tag} / {side} ---")
 
         for team_id in team_ids:
-            filename = get_filename(team_id, opp=opp, leverage=leverage)
+            filename = get_filename(team_id, opp=opp, leverage=leverage, playoffs=playoffs)
             filepath = os.path.join(output_dir, filename)
 
             try:
                 df = lineuppull_full(
-                    team_id, year, season, opp=opp, leverage=leverage
+                    team_id, year, season, season_type, opp=opp, leverage=leverage
                 )
             except Exception as e:
                 print(f"  FAILED {team_id} ({side}): {e}")
@@ -421,7 +431,9 @@ def pull_block(team_ids, year, leverage=False):
             df["team_id"] = team_id
             df["year"] = year
             df["season"] = season
+            df["season_type"] = season_type
             df["team_vs"] = opp
+            df["playoffs"] = int(playoffs)
             if "Corner3FGM" not in df.columns:
                 df["Corner3FGM"] = 0
 
@@ -451,29 +463,39 @@ def main():
     args = parser.parse_args()
 
     year = args.year or current_nba_season()
-    print(f"=== PBPStats On-Off Fetch: {year - 1}-{str(year)[-2:]} season (SeasonType={DEFAULT_SEASON_TYPE}) ===\n")
+    print(f"=== PBPStats On-Off Fetch: {year - 1}-{str(year)[-2:]} season ===\n")
 
     team_ids = fetch_team_ids()
-    total_calls = len(team_ids) * 2 * 2  # teams * sides * blocks
+    total_calls = len(team_ids) * 2 * 2 * 2  # teams * sides * leverage blocks * season types
     print(f"Will make ~{total_calls}+ API calls (more if teams hit {ROW_CAP}-row cap)\n")
 
     start = time.time()
 
-    # Block 1: Leverage
-    print("=" * 60)
-    print("BLOCK 1: LEVERAGE (Medium,High,VeryHigh)")
-    print("=" * 60)
-    lev_team, lev_vs, lev_fails = pull_block(team_ids, year, leverage=True)
+    all_fails = []
+    season_configs = [
+        (DEFAULT_SEASON_TYPE, False),
+        (PLAYOFFS_SEASON_TYPE, True),
+    ]
+    block_num = 1
+    for season_type, playoffs in season_configs:
+        for leverage in (True, False):
+            print("\n" + "=" * 60)
+            print(
+                f"BLOCK {block_num}: {season_type.upper()} / "
+                f"{'LEVERAGE (Medium,High,VeryHigh)' if leverage else 'NON-LEVERAGE (all possessions)'}"
+            )
+            print("=" * 60)
+            _, _, block_fails = pull_block(
+                team_ids,
+                year,
+                season_type=season_type,
+                playoffs=playoffs,
+                leverage=leverage,
+            )
+            all_fails.extend(block_fails)
+            block_num += 1
 
-    # Block 2: Non-leverage
-    print("\n" + "=" * 60)
-    print("BLOCK 2: NON-LEVERAGE (all possessions)")
-    print("=" * 60)
-    nl_team, nl_vs, nl_fails = pull_block(team_ids, year, leverage=False)
-
-    # Summary
     elapsed = time.time() - start
-    all_fails = lev_fails + nl_fails
 
     data_dir = f"output/data/{year}"
     file_count = len([f for f in os.listdir(data_dir) if f.endswith(".csv")])

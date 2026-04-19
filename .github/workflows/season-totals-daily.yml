@@ -2,7 +2,7 @@ name: Daily Season Totals
 
 on:
   schedule:
-    - cron: '30 12 * * *'   # 4:30 AM PST = 12:30 UTC (runs before on-off at 12:45)
+    - cron: '30 12 * * *'   # 5:30 AM PDT = 12:30 UTC (runs before on-off at 12:45 UTC)
   workflow_dispatch:
     inputs:
       year:

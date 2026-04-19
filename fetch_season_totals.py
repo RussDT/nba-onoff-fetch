@@ -51,9 +51,10 @@ HEADERS = {
 }
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
+DEFAULT_REGULAR_SEASON_TYPE = "Regular Season"
 
 
-def fetch_totals(year, season_type="Regular Season", leverage=False):
+def fetch_totals(year, season_type=DEFAULT_REGULAR_SEASON_TYPE, leverage=False):
     """Fetch a single season's totals from PBPStats."""
     season = f"{year - 1}-{str(year)[-2:]}"
     params = {
@@ -122,9 +123,9 @@ def main():
 
     print(f"=== fetch_season_totals.py (year={year}) ===\n")
 
-    # 1. Regular Season (non-leverage)
-    print("--- Regular Season ---")
-    rs_data = fetch_totals(year, "Regular Season", leverage=False)
+    # 1. All (non-leverage)
+    print(f"--- {DEFAULT_REGULAR_SEASON_TYPE} ---")
+    rs_data = fetch_totals(year, DEFAULT_REGULAR_SEASON_TYPE, leverage=False)
     if not rs_data.empty:
         update_csv(DATA_DIR / "season_totals.csv", rs_data, year)
 
@@ -134,9 +135,9 @@ def main():
     if not ps_data.empty:
         update_csv(DATA_DIR / "season_totals_playoffs.csv", ps_data, year)
 
-    # 3. Regular Season (leverage)
-    print("\n--- Regular Season (Leverage) ---")
-    rs_lev = fetch_totals(year, "Regular Season", leverage=True)
+    # 3. All (leverage)
+    print(f"\n--- {DEFAULT_REGULAR_SEASON_TYPE} (Leverage) ---")
+    rs_lev = fetch_totals(year, DEFAULT_REGULAR_SEASON_TYPE, leverage=True)
     if not rs_lev.empty:
         update_csv(DATA_DIR / "season_totals_leverage.csv", rs_lev, year)
 
