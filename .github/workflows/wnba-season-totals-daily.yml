@@ -1,0 +1,68 @@
+name: Daily WNBA Season Totals
+
+on:
+  schedule:
+    - cron: '00 13 * * *'
+  workflow_dispatch:
+    inputs:
+      year:
+        description: 'WNBA season year (auto-detects if empty)'
+        default: ''
+      start_year:
+        description: 'Optional historical player index start year'
+        default: ''
+      end_year:
+        description: 'Optional historical player index end year'
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install requests pandas
+
+      - name: Detect season year
+        id: season
+        run: |
+          if [ -n "${{ inputs.year }}" ]; then
+            echo "year=${{ inputs.year }}" >> "$GITHUB_OUTPUT"
+          else
+            python -c "from fetch_wnba_season_totals import current_wnba_season; print(f'year={current_wnba_season()}')" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch WNBA season totals
+        run: python fetch_wnba_season_totals.py ${{ inputs.year && format('--year {0}', inputs.year) || '' }}
+
+      - name: Fetch WNBA player index
+        run: |
+          if [ -n "${{ inputs.start_year }}" ] || [ -n "${{ inputs.end_year }}" ]; then
+            python fetch_wnba_player_index.py \
+              ${{ inputs.start_year && format('--start-year {0}', inputs.start_year) || '' }} \
+              ${{ inputs.end_year && format('--end-year {0}', inputs.end_year) || '' }}
+          else
+            python fetch_wnba_player_index.py ${{ inputs.year && format('--year {0}', inputs.year) || '' }}
+          fi
+
+      - name: Commit updated CSVs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "Update WNBA season totals $(date -u +%Y-%m-%d)"
+          git push
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wnba-season-totals-${{ steps.season.outputs.year }}
+          path: data/
+          retention-days: 30
