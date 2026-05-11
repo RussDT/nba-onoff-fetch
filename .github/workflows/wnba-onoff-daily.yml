@@ -1,0 +1,41 @@
+name: Daily WNBA On-Off Fetch
+
+on:
+  schedule:
+    - cron: '15 13 * * *'
+  workflow_dispatch:
+    inputs:
+      year:
+        description: 'WNBA season year (auto-detects if empty)'
+        default: ''
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install requests pandas
+
+      - name: Detect season year
+        id: season
+        run: |
+          if [ -n "${{ inputs.year }}" ]; then
+            echo "year=${{ inputs.year }}" >> "$GITHUB_OUTPUT"
+          else
+            python -c "from fetch_wnba_onoff import current_wnba_season; print(f'year={current_wnba_season()}')" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch WNBA on-off data
+        run: python fetch_wnba_onoff.py ${{ inputs.year && format('--year {0}', inputs.year) || '' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wnba-onoff-${{ steps.season.outputs.year }}
+          path: output/
+          retention-days: 30
