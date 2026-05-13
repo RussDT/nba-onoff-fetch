@@ -80,8 +80,24 @@ def fetch_player_totals(year, season_type="Regular Season"):
             time.sleep(2)
 
 
-def build_index_rows(year, season_type, playoffs):
-    raw = fetch_player_totals(year, season_type=season_type)
+def player_totals_filename(year, playoffs):
+    suffix = "ps" if playoffs else ""
+    return DATA_DIR / f"{year}{suffix}_pbp.csv"
+
+
+def write_player_totals_csv(raw, year, playoffs):
+    path = player_totals_filename(year, playoffs)
+    if raw.empty:
+        print(f"  No player totals rows for {path.name}; leaving artifact unchanged")
+        return
+
+    output = raw.copy()
+    output["year"] = f"{year}ps" if playoffs else int(year)
+    output.to_csv(path, index=False)
+    print(f"  Saved {len(output)} rows to {path.name}")
+
+
+def build_index_rows_from_totals(raw, year, playoffs):
     if raw.empty:
         return pd.DataFrame(columns=["player", "url", "year", "team", "bref_id", "nba_id", "team_id", "playoffs"])
 
@@ -157,9 +173,15 @@ def main():
 
     for year in years:
         print(f"\n--- {year} ---")
+        regular_totals = fetch_player_totals(year, season_type="Regular Season")
+        write_player_totals_csv(regular_totals, year, playoffs=0)
+
+        playoff_totals = fetch_player_totals(year, season_type="Playoffs")
+        write_player_totals_csv(playoff_totals, year, playoffs=1)
+
         frames = [
-            build_index_rows(year, "Regular Season", playoffs=0),
-            build_index_rows(year, "Playoffs", playoffs=1),
+            build_index_rows_from_totals(regular_totals, year, playoffs=0),
+            build_index_rows_from_totals(playoff_totals, year, playoffs=1),
         ]
         year_rows = pd.concat(frames, ignore_index=True)
         if year_rows.empty:
