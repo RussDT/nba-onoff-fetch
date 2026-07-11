@@ -15,6 +15,8 @@ from wnba_official_enrichment import (
     enrich_player_totals,
     fetch_official_player_totals,
     fetch_official_positions,
+    fetch_official_team_totals,
+    validate_league_minutes,
     validate_publish_row_count,
 )
 
@@ -93,7 +95,7 @@ def player_totals_filename(year, playoffs):
     return DATA_DIR / f"{year}{suffix}_pbp.csv"
 
 
-def write_player_totals_csv(raw, year, playoffs):
+def write_player_totals_csv(raw, year, playoffs, reconciliation=None):
     path = player_totals_filename(year, playoffs)
     if raw.empty:
         print(f"  No player totals rows for {path.name}; leaving artifact unchanged")
@@ -122,6 +124,8 @@ def write_player_totals_csv(raw, year, playoffs):
         "minutes_source": "stats.wnba.com/stats/leaguedashplayerstats",
         "positions_source": "stats.wnba.com/stats/playerindex",
     }
+    if reconciliation:
+        metadata["league_minutes_reconciliation"] = reconciliation
     metadata_temp_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     metadata_temp_path.replace(metadata_path)
     print(f"  Saved {len(output)} rows to {path.name}")
@@ -129,16 +133,18 @@ def write_player_totals_csv(raw, year, playoffs):
 
 def enrich_current_totals(raw, year, season_type, official_positions):
     if raw.empty:
-        return raw
+        return raw, None
 
     official_totals = fetch_official_player_totals(year, season_type)
+    official_team_totals = fetch_official_team_totals(year, season_type)
+    reconciliation = validate_league_minutes(official_totals, official_team_totals)
     enriched = enrich_player_totals(raw, official_totals, official_positions)
     print(
         "  Enriched PBP rows with official minutes and positions: "
         f"rows={len(enriched)} minutes={enriched['Minutes'].sum():.2f} "
         f"positions={enriched['Pos'].notna().sum()}"
     )
-    return enriched
+    return enriched, reconciliation
 
 
 def build_index_rows_from_totals(raw, year, playoffs):
@@ -220,22 +226,32 @@ def main():
         official_positions = fetch_official_positions(year)
 
         regular_totals = fetch_player_totals(year, season_type="Regular Season")
-        regular_totals = enrich_current_totals(
+        regular_totals, regular_reconciliation = enrich_current_totals(
             regular_totals,
             year,
             "Regular Season",
             official_positions,
         )
-        write_player_totals_csv(regular_totals, year, playoffs=0)
+        write_player_totals_csv(
+            regular_totals,
+            year,
+            playoffs=0,
+            reconciliation=regular_reconciliation,
+        )
 
         playoff_totals = fetch_player_totals(year, season_type="Playoffs")
-        playoff_totals = enrich_current_totals(
+        playoff_totals, playoff_reconciliation = enrich_current_totals(
             playoff_totals,
             year,
             "Playoffs",
             official_positions,
         )
-        write_player_totals_csv(playoff_totals, year, playoffs=1)
+        write_player_totals_csv(
+            playoff_totals,
+            year,
+            playoffs=1,
+            reconciliation=playoff_reconciliation,
+        )
 
         frames = [
             build_index_rows_from_totals(regular_totals, year, playoffs=0),

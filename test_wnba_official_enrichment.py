@@ -6,6 +6,7 @@ from wnba_official_enrichment import (
     EnrichmentError,
     enrich_player_totals,
     result_set_frame,
+    validate_league_minutes,
     validate_publish_row_count,
 )
 
@@ -53,6 +54,8 @@ class EnrichPlayerTotalsTests(unittest.TestCase):
 
         self.assertEqual(rows.loc["101", "Minutes"], 231.5)
         self.assertEqual(rows.loc["101", "SecondsPlayed"], 13890.0)
+        self.assertEqual(rows.loc["101", "mp"], 231.5)
+        self.assertAlmostEqual(rows.loc["101", "MPG"], 231.5 / 8)
         self.assertEqual(rows.loc["101", "Pos"], "G-F")
         self.assertEqual(rows.loc["101", "Pos2"], "G-F")
         self.assertEqual(rows.loc["101", "Points"], 99)
@@ -84,6 +87,26 @@ class EnrichPlayerTotalsTests(unittest.TestCase):
         broken.loc[0, "MIN"] = float("nan")
         with self.assertRaisesRegex(EnrichmentError, "invalid official minutes"):
             enrich_player_totals(self.pbp, broken, self.positions)
+
+    def test_rejects_minutes_above_regulation_plus_explicit_overtime_allowance(self):
+        broken = self.official_totals.copy()
+        broken.loc[0, "MIN"] = 361.0
+        with self.assertRaisesRegex(EnrichmentError, "plausible maximum"):
+            enrich_player_totals(self.pbp, broken, self.positions)
+
+    def test_reconciles_league_minutes_to_completed_games_and_overtime(self):
+        player_totals = pd.DataFrame([{"MIN": 225.0}, {"MIN": 225.0}])
+        team_totals = pd.DataFrame([{"TEAM_ID": 1, "GP": 1}, {"TEAM_ID": 2, "GP": 1}])
+
+        result = validate_league_minutes(player_totals, team_totals)
+
+        self.assertEqual(result["completed_games"], 1)
+        self.assertEqual(result["overtime_periods"], 1)
+        self.assertAlmostEqual(result["official_player_minutes"], 450.0)
+
+        broken = pd.DataFrame([{"MIN": 430.0}])
+        with self.assertRaisesRegex(EnrichmentError, "do not reconcile"):
+            validate_league_minutes(broken, team_totals)
 
     def test_parses_only_the_expected_official_result_set(self):
         payload = {
