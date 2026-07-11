@@ -1,8 +1,10 @@
 """Fetch WNBA player-team-season index rows from PBPStats player totals."""
 
 import argparse
+import hashlib
+import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -13,6 +15,7 @@ from wnba_official_enrichment import (
     enrich_player_totals,
     fetch_official_player_totals,
     fetch_official_positions,
+    validate_publish_row_count,
 )
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -98,9 +101,29 @@ def write_player_totals_csv(raw, year, playoffs):
 
     output = raw.copy()
     output["year"] = f"{year}ps" if playoffs else int(year)
+    if path.exists():
+        previous_count = len(pd.read_csv(path, usecols=["EntityId"]))
+        validate_publish_row_count(len(output), previous_count)
+
     temp_path = path.with_suffix(f"{path.suffix}.tmp")
     output.to_csv(temp_path, index=False)
+    content_hash = hashlib.sha256(temp_path.read_bytes()).hexdigest()
     temp_path.replace(path)
+
+    metadata_path = path.with_suffix(".meta.json")
+    metadata_temp_path = metadata_path.with_suffix(f"{metadata_path.suffix}.tmp")
+    metadata = {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "season": int(year),
+        "season_type": "Playoffs" if playoffs else "Regular Season",
+        "row_count": len(output),
+        "sha256": content_hash,
+        "advanced_source": "api.pbpstats.com/get-totals/wnba",
+        "minutes_source": "stats.wnba.com/stats/leaguedashplayerstats",
+        "positions_source": "stats.wnba.com/stats/playerindex",
+    }
+    metadata_temp_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    metadata_temp_path.replace(metadata_path)
     print(f"  Saved {len(output)} rows to {path.name}")
 
 

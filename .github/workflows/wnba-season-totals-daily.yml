@@ -8,12 +8,6 @@ on:
       year:
         description: 'WNBA season year (auto-detects if empty)'
         default: ''
-      start_year:
-        description: 'Optional historical player index start year'
-        default: ''
-      end_year:
-        description: 'Optional historical player index end year'
-        default: ''
 
 permissions:
   contents: write
@@ -45,16 +39,6 @@ jobs:
 
       - name: Fetch WNBA season totals
         run: python fetch_wnba_season_totals.py ${{ inputs.year && format('--year {0}', inputs.year) || '' }}
-
-      - name: Fetch WNBA player index
-        run: |
-          if [ -n "${{ inputs.start_year }}" ] || [ -n "${{ inputs.end_year }}" ]; then
-            python fetch_wnba_player_index.py \
-              ${{ inputs.start_year && format('--start-year {0}', inputs.start_year) || '' }} \
-              ${{ inputs.end_year && format('--end-year {0}', inputs.end_year) || '' }}
-          else
-            python fetch_wnba_player_index.py ${{ inputs.year && format('--year {0}', inputs.year) || '' }}
-          fi
 
       - name: Commit updated CSVs
         run: |

@@ -176,6 +176,17 @@ def normalize_position(value):
     return POSITION_ALIASES.get(normalized, "")
 
 
+def validate_publish_row_count(new_count, previous_count, minimum_retention=0.9):
+    if previous_count <= 0:
+        return
+    minimum_count = math.ceil(previous_count * minimum_retention)
+    if new_count < minimum_count:
+        raise EnrichmentError(
+            f"WNBA artifact row count dropped from {previous_count} to {new_count} "
+            f"(minimum {minimum_count})"
+        )
+
+
 def _unique_lookup(frame, id_column, value_column, label, transform=lambda value: value):
     missing_columns = {id_column, value_column} - set(frame.columns)
     if missing_columns:

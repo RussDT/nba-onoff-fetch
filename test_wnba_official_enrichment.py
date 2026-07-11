@@ -2,7 +2,12 @@ import unittest
 
 import pandas as pd
 
-from wnba_official_enrichment import EnrichmentError, enrich_player_totals, result_set_frame
+from wnba_official_enrichment import (
+    EnrichmentError,
+    enrich_player_totals,
+    result_set_frame,
+    validate_publish_row_count,
+)
 
 
 class EnrichPlayerTotalsTests(unittest.TestCase):
@@ -107,6 +112,12 @@ class EnrichPlayerTotalsTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(EnrichmentError, "could not be parsed"):
             result_set_frame(malformed, "PlayerIndex")
+
+    def test_rejects_a_large_drop_from_the_last_published_artifact(self):
+        validate_publish_row_count(new_count=192, previous_count=213)
+
+        with self.assertRaisesRegex(EnrichmentError, "row count dropped"):
+            validate_publish_row_count(new_count=190, previous_count=213)
 
 
 if __name__ == "__main__":

@@ -15,7 +15,14 @@ workflow enriches every PBP player by the official WNBA numeric player ID:
 
 The job fails before publishing if any PBP player is unmatched, any minute value
 is negative or non-finite, or any position is blank/unsupported. CSV replacement
-is atomic, so a failed official refresh leaves the last committed artifact intact.
+is atomic, and a 10%+ row-count drop is rejected, so a failed official refresh
+leaves the last committed artifact intact. Each player artifact also publishes a
+`.meta.json` sidecar with generation time, row count, content hash, and source URLs.
+
+The official WNBA endpoints block GitHub-hosted runner IPs. The existing local
+`2026_NBA_PIPELINE` launchd job therefore owns the player artifact refresh and
+push. GitHub Actions continues to refresh league-wide WNBA season totals and run
+the contract test suite, but it does not call the official player endpoints.
 
 ## Current 2026 State
 
