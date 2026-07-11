@@ -2,6 +2,21 @@
 
 Daily PBPStats on-off (wowy) data fetch via GitHub Actions.
 
+## WNBA player totals contract
+
+`data/{year}_pbp.csv` keeps PBPStats possession and event metrics, but PBPStats
+is not trusted for WNBA playing time or roster position. The daily WNBA totals
+workflow enriches every PBP player by the official WNBA numeric player ID:
+
+- `stats.wnba.com/stats/leaguedashplayerstats.MIN` replaces `Minutes` and
+  `SecondsPlayed`.
+- `stats.wnba.com/stats/playerindex.POSITION` populates `Pos`, `pos`, and
+  `Pos2` with the official broad `G` / `F` / `C` vocabulary and hybrids.
+
+The job fails before publishing if any PBP player is unmatched, any minute value
+is negative or non-finite, or any position is blank/unsupported. CSV replacement
+is atomic, so a failed official refresh leaves the last committed artifact intact.
+
 ## Current 2026 State
 
 This repo now freezes the completed regular-season snapshot and publishes playoff on-off files for the 2025-26 postseason handoff.

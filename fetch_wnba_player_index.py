@@ -9,6 +9,11 @@ import pandas as pd
 import requests
 
 from fetch_season_totals import HEADERS
+from wnba_official_enrichment import (
+    enrich_player_totals,
+    fetch_official_player_totals,
+    fetch_official_positions,
+)
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 WNBA_TOTALS_URL = "https://api.pbpstats.com/get-totals/wnba"
@@ -93,8 +98,24 @@ def write_player_totals_csv(raw, year, playoffs):
 
     output = raw.copy()
     output["year"] = f"{year}ps" if playoffs else int(year)
-    output.to_csv(path, index=False)
+    temp_path = path.with_suffix(f"{path.suffix}.tmp")
+    output.to_csv(temp_path, index=False)
+    temp_path.replace(path)
     print(f"  Saved {len(output)} rows to {path.name}")
+
+
+def enrich_current_totals(raw, year, season_type, official_positions):
+    if raw.empty:
+        return raw
+
+    official_totals = fetch_official_player_totals(year, season_type)
+    enriched = enrich_player_totals(raw, official_totals, official_positions)
+    print(
+        "  Enriched PBP rows with official minutes and positions: "
+        f"rows={len(enriched)} minutes={enriched['Minutes'].sum():.2f} "
+        f"positions={enriched['Pos'].notna().sum()}"
+    )
+    return enriched
 
 
 def build_index_rows_from_totals(raw, year, playoffs):
@@ -173,10 +194,24 @@ def main():
 
     for year in years:
         print(f"\n--- {year} ---")
+        official_positions = fetch_official_positions(year)
+
         regular_totals = fetch_player_totals(year, season_type="Regular Season")
+        regular_totals = enrich_current_totals(
+            regular_totals,
+            year,
+            "Regular Season",
+            official_positions,
+        )
         write_player_totals_csv(regular_totals, year, playoffs=0)
 
         playoff_totals = fetch_player_totals(year, season_type="Playoffs")
+        playoff_totals = enrich_current_totals(
+            playoff_totals,
+            year,
+            "Playoffs",
+            official_positions,
+        )
         write_player_totals_csv(playoff_totals, year, playoffs=1)
 
         frames = [
