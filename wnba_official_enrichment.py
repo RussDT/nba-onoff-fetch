@@ -35,7 +35,6 @@ POSITION_ALIASES = {
 STATS_BASE_URL = "https://stats.wnba.com/stats"
 REGULATION_MINUTES_PER_GAME = 400.0
 OVERTIME_PLAYER_MINUTES = 50.0
-MAX_PLAYER_OVERTIME_MINUTES_PER_GAME = 5.0
 LEAGUE_MINUTES_TOLERANCE = 2.0
 
 
@@ -299,7 +298,7 @@ def validate_league_minutes(official_totals, official_team_totals):
     }
 
 
-def enrich_player_totals(pbp_rows, official_totals, official_positions):
+def enrich_player_totals(pbp_rows, official_totals, official_positions, overtime_periods=0):
     """Return PBP rows with official time and broad roster position fields."""
     if "EntityId" not in pbp_rows.columns:
         raise EnrichmentError("PBP artifact missing EntityId")
@@ -328,6 +327,17 @@ def enrich_player_totals(pbp_rows, official_totals, official_positions):
         normalize_position,
     )
 
+    official_ids = {_id_key(value) for value in official_totals["PLAYER_ID"]}
+    official_ids.discard("")
+    official_missing_positions = sorted(
+        player_id for player_id in official_ids if not positions_by_id.get(player_id)
+    )
+    if official_missing_positions:
+        raise EnrichmentError(
+            "official positions missing or invalid for official player IDs: "
+            f"{official_missing_positions}"
+        )
+
     player_ids = pbp_rows["EntityId"].map(_id_key)
     missing_minutes = sorted(player_id for player_id in player_ids.unique() if not player_id or player_id not in minutes_by_id)
     if missing_minutes:
@@ -347,7 +357,7 @@ def enrich_player_totals(pbp_rows, official_totals, official_positions):
         player_id
         for player_id in player_ids.unique()
         if minutes_by_id[player_id]
-        > games_by_id[player_id] * (40.0 + MAX_PLAYER_OVERTIME_MINUTES_PER_GAME)
+        > games_by_id[player_id] * 40.0 + max(0, int(overtime_periods)) * 5.0
     )
     if implausible_minutes:
         raise EnrichmentError(
@@ -370,6 +380,13 @@ def enrich_player_totals(pbp_rows, official_totals, official_positions):
     output["Pos"] = player_ids.map(positions_by_id)
     output["pos"] = output["Pos"]
     output["Pos2"] = output["Pos"]
+    pbp_ids = set(player_ids.unique())
+    output.attrs["id_coverage"] = {
+        "pbp_player_count": len(pbp_ids),
+        "official_player_count": len(official_ids),
+        "pbp_only_player_ids": sorted(pbp_ids - official_ids),
+        "official_only_player_ids": sorted(official_ids - pbp_ids),
+    }
 
     if not output["Minutes"].map(math.isfinite).all() or (output["Minutes"] < 0).any():
         raise EnrichmentError("invalid official minutes remained after enrichment")

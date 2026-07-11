@@ -123,6 +123,7 @@ def write_player_totals_csv(raw, year, playoffs, reconciliation=None):
         "advanced_source": "api.pbpstats.com/get-totals/wnba",
         "minutes_source": "stats.wnba.com/stats/leaguedashplayerstats",
         "positions_source": "stats.wnba.com/stats/playerindex",
+        "id_coverage": output.attrs.get("id_coverage") or raw.attrs.get("id_coverage") or {},
     }
     if reconciliation:
         metadata["league_minutes_reconciliation"] = reconciliation
@@ -138,7 +139,12 @@ def enrich_current_totals(raw, year, season_type, official_positions):
     official_totals = fetch_official_player_totals(year, season_type)
     official_team_totals = fetch_official_team_totals(year, season_type)
     reconciliation = validate_league_minutes(official_totals, official_team_totals)
-    enriched = enrich_player_totals(raw, official_totals, official_positions)
+    enriched = enrich_player_totals(
+        raw,
+        official_totals,
+        official_positions,
+        overtime_periods=reconciliation["overtime_periods"],
+    )
     print(
         "  Enriched PBP rows with official minutes and positions: "
         f"rows={len(enriched)} minutes={enriched['Minutes'].sum():.2f} "

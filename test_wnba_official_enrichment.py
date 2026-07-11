@@ -94,6 +94,37 @@ class EnrichPlayerTotalsTests(unittest.TestCase):
         with self.assertRaisesRegex(EnrichmentError, "plausible maximum"):
             enrich_player_totals(self.pbp, broken, self.positions)
 
+        one_game = self.pbp.iloc[:1].copy()
+        one_game_totals = pd.DataFrame([{"PLAYER_ID": "101", "GP": 1, "MIN": 50.0}])
+        result = enrich_player_totals(
+            one_game,
+            one_game_totals,
+            self.positions.iloc[:1],
+            overtime_periods=2,
+        )
+        self.assertEqual(result.iloc[0]["Minutes"], 50.0)
+
+    def test_requires_positions_for_every_official_player_and_reports_official_only_ids(self):
+        official_totals = pd.concat(
+            [
+                self.official_totals,
+                pd.DataFrame([{"PLAYER_ID": 303, "GP": 1, "MIN": 10.0}]),
+            ],
+            ignore_index=True,
+        )
+        positions = pd.concat(
+            [self.positions, pd.DataFrame([{"PERSON_ID": 303, "POSITION": "G"}])],
+            ignore_index=True,
+        )
+
+        result = enrich_player_totals(self.pbp, official_totals, positions)
+
+        self.assertEqual(result.attrs["id_coverage"]["official_only_player_ids"], ["303"])
+        self.assertEqual(result.attrs["id_coverage"]["pbp_only_player_ids"], [])
+
+        with self.assertRaisesRegex(EnrichmentError, "positions missing.*official player IDs"):
+            enrich_player_totals(self.pbp, official_totals, self.positions)
+
     def test_reconciles_league_minutes_to_completed_games_and_overtime(self):
         player_totals = pd.DataFrame([{"MIN": 225.0}, {"MIN": 225.0}])
         team_totals = pd.DataFrame([{"TEAM_ID": 1, "GP": 1}, {"TEAM_ID": 2, "GP": 1}])
