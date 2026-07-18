@@ -24,6 +24,13 @@ The official WNBA endpoints block GitHub-hosted runner IPs. The existing local
 push. GitHub Actions continues to refresh league-wide WNBA season totals and run
 the contract test suite, but it does not call the official player endpoints.
 
+The portable local entrypoint is `scripts/run_local_wnba_player_refresh.sh`. It
+pulls `main`, runs the contract tests, refreshes the current UTC season with the
+official minutes/position enrichment, and commits only the player artifact files.
+It expects a repo-local `.venv` with `pandas`, `requests`, and
+`curl_cffi==0.14.0`. A launchd job can call this script without the full
+`2026_NBA_PIPELINE` checkout.
+
 ## Current 2026 State
 
 This repo now freezes the completed regular-season snapshot and publishes playoff on-off files for the 2025-26 postseason handoff.
