@@ -31,7 +31,11 @@ It expects a repo-local `.venv` with `pandas`, `requests`, and
 `curl_cffi==0.14.0`. Install or repair the launchd job with
 `scripts/install_wnba_player_launchd.sh`; the generated plist explicitly invokes
 Bash, runs at 5:15 AM local time, and also runs when it is loaded so a reboot or
-missed calendar window catches up. The `Monitor WNBA Player Artifact Freshness`
+missed calendar window catches up. The installer registers a write-enabled SSH
+deploy key scoped only to this repository, so background pushes do not depend on
+an interactive macOS Keychain prompt. A failed push leaves the local commit ahead
+of `origin/main`, and the next run retries it even if the fetched data is unchanged.
+The `Monitor WNBA Player Artifact Freshness`
 workflow checks the committed CSV, metadata timestamp, row count, and hash twice
 daily and fails once the artifact is more than 30 hours old.
 

@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 YEAR="${WNBA_YEAR:-$(date -u +%Y)}"
 PYTHON_BIN="${WNBA_PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
+PUSH_TARGET="${WNBA_GIT_PUSH_URL:-origin}"
 LOCK_DIR="$ROOT_DIR/.wnba-player-refresh.lock"
 LOG_DIR="$ROOT_DIR/logs"
 
@@ -21,23 +22,32 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
   exit 1
 fi
 
+push_pending_commits() {
+  if [[ "$(git rev-list --count origin/main..HEAD)" -eq 0 ]]; then
+    echo "No WNBA player commits to push"
+    return 0
+  fi
+  if ! git push "$PUSH_TARGET" main; then
+    echo "Push raced with another update; rebasing once and retrying"
+    git pull --rebase origin main
+    git push "$PUSH_TARGET" main
+  fi
+}
+
 cd "$ROOT_DIR"
 git pull --ff-only
+push_pending_commits
 "$PYTHON_BIN" -m unittest discover -v
 "$PYTHON_BIN" fetch_wnba_player_index.py --year "$YEAR"
 
 git add "data/${YEAR}_pbp.csv" "data/${YEAR}_pbp.meta.json" data/wnba_player_index.csv
 if git diff --cached --quiet; then
   echo "No WNBA player artifact changes"
-  exit 0
+else
+  git config user.name "WNBA local refresh"
+  git config user.email "russdt@users.noreply.github.com"
+  git commit -m "Update official WNBA player totals $(date -u +%Y-%m-%d)"
 fi
 
-git config user.name "WNBA local refresh"
-git config user.email "russdt@users.noreply.github.com"
-git commit -m "Update official WNBA player totals $(date -u +%Y-%m-%d)"
-if ! git push origin main; then
-  echo "Push raced with another update; rebasing once and retrying"
-  git pull --rebase origin main
-  git push origin main
-fi
+push_pending_commits
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] WNBA player refresh complete"
