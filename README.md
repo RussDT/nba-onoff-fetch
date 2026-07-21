@@ -28,8 +28,12 @@ The portable local entrypoint is `scripts/run_local_wnba_player_refresh.sh`. It
 pulls `main`, runs the contract tests, refreshes the current UTC season with the
 official minutes/position enrichment, and commits only the player artifact files.
 It expects a repo-local `.venv` with `pandas`, `requests`, and
-`curl_cffi==0.14.0`. A launchd job can call this script without the full
-`2026_NBA_PIPELINE` checkout.
+`curl_cffi==0.14.0`. Install or repair the launchd job with
+`scripts/install_wnba_player_launchd.sh`; the generated plist explicitly invokes
+Bash, runs at 5:15 AM local time, and also runs when it is loaded so a reboot or
+missed calendar window catches up. The `Monitor WNBA Player Artifact Freshness`
+workflow checks the committed CSV, metadata timestamp, row count, and hash twice
+daily and fails once the artifact is more than 30 hours old.
 
 ## Current 2026 State
 

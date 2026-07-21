@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 YEAR="${WNBA_YEAR:-$(date -u +%Y)}"
 PYTHON_BIN="${WNBA_PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
 LOCK_DIR="$ROOT_DIR/.wnba-player-refresh.lock"
 LOG_DIR="$ROOT_DIR/logs"
 
 mkdir -p "$LOG_DIR"
+echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Starting WNBA player refresh for $YEAR"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   echo "WNBA player refresh is already running"
   exit 0
@@ -34,4 +35,9 @@ fi
 git config user.name "WNBA local refresh"
 git config user.email "russdt@users.noreply.github.com"
 git commit -m "Update official WNBA player totals $(date -u +%Y-%m-%d)"
-git push origin main
+if ! git push origin main; then
+  echo "Push raced with another update; rebasing once and retrying"
+  git pull --rebase origin main
+  git push origin main
+fi
+echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] WNBA player refresh complete"

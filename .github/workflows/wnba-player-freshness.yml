@@ -1,0 +1,50 @@
+name: Monitor WNBA Player Artifact Freshness
+
+on:
+  schedule:
+    - cron: "47 16,22 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validate current player artifact
+        run: |
+          python3 - <<'PY'
+          import csv
+          import hashlib
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          year = datetime.now(timezone.utc).year
+          csv_path = Path("data") / f"{year}_pbp.csv"
+          meta_path = Path("data") / f"{year}_pbp.meta.json"
+          if not csv_path.exists() or not meta_path.exists():
+              raise SystemExit(f"Missing current-season player artifact for {year}")
+
+          meta = json.loads(meta_path.read_text())
+          generated_at = datetime.fromisoformat(meta["generated_at_utc"].replace("Z", "+00:00"))
+          age_hours = (datetime.now(timezone.utc) - generated_at).total_seconds() / 3600
+          with csv_path.open(newline="") as handle:
+              row_count = sum(1 for _ in csv.DictReader(handle))
+          digest = hashlib.sha256(csv_path.read_bytes()).hexdigest()
+
+          if age_hours > 30:
+              raise SystemExit(f"WNBA player artifact is stale: {age_hours:.1f} hours old")
+          if row_count != meta.get("row_count") or row_count < 200:
+              raise SystemExit(
+                  f"WNBA player row-count contract failed: csv={row_count} meta={meta.get('row_count')}"
+              )
+          if digest != meta.get("sha256"):
+              raise SystemExit("WNBA player artifact hash does not match metadata")
+
+          print(f"WNBA player artifact is fresh: {row_count} rows, {age_hours:.1f} hours old")
+          PY
