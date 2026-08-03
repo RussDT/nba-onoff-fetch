@@ -41,11 +41,19 @@ WNBA_TEAM_IDS = [
 ]
 
 WNBA_WOWY_URL = "https://api.pbpstats.com/get-wowy-stats/wnba"
+BLOCK_RETRY_DELAY = 30
 
 
 def current_wnba_season():
     """WNBA seasons are single-calendar-year seasons."""
     return datetime.utcnow().year
+
+
+def season_plan(include_playoffs=False):
+    plan = [("Regular Season", False)]
+    if include_playoffs:
+        plan.append(("Playoffs", True))
+    return plan
 
 
 def parse_team_ids(values):
@@ -123,41 +131,62 @@ def pull_block(team_ids, year, season_type, playoffs=False, leverage=False):
     os.makedirs(output_dir, exist_ok=True)
     season_label = "playoffs" if playoffs else "regular season"
     tag = "leverage" if leverage else "non-leverage"
-    fail_list = []
+    failed_requests = []
+
+    def fetch_and_write(team_id, opp, failure_label):
+        side = "Opponent" if opp else "Team"
+        filename = get_filename(team_id, opp=opp, leverage=leverage, playoffs=playoffs)
+        filepath = os.path.join(output_dir, filename)
+        try:
+            df = lineuppull_full(team_id, year, season_type, opp=opp, leverage=leverage)
+        except Exception as exc:
+            print(f"  {failure_label} {team_id} ({side}): {exc}")
+            return False
+
+        df = df.reset_index(drop=True)
+        df["team_id"] = team_id
+        df["year"] = year
+        df["season"] = str(year)
+        df["season_type"] = season_type
+        df["team_vs"] = opp
+        df["playoffs"] = int(playoffs)
+        if "Corner3FGM" not in df.columns:
+            df["Corner3FGM"] = 0
+
+        if len(df) > 2:
+            df.to_csv(filepath, index=False)
+            print(f"  Saved {filename} ({len(df)} rows)")
+        else:
+            print(f"  Skipped {filename} (only {len(df)} rows)")
+
+        time.sleep(nba_fetch.SLEEP_BETWEEN)
+        return True
 
     for opp in (False, True):
         side = "Opponent" if opp else "Team"
         print(f"\n--- WNBA {season_label} / {tag} / {side} ---")
 
         for team_id in team_ids:
-            filename = get_filename(team_id, opp=opp, leverage=leverage, playoffs=playoffs)
-            filepath = os.path.join(output_dir, filename)
-            try:
-                df = lineuppull_full(team_id, year, season_type, opp=opp, leverage=leverage)
-            except Exception as e:
-                print(f"  FAILED {team_id} ({side}): {e}")
-                fail_list.append((team_id, side))
-                continue
+            if not fetch_and_write(team_id, opp, "INITIAL FAILURE"):
+                failed_requests.append((team_id, opp))
 
-            df = df.reset_index(drop=True)
-            df["team_id"] = team_id
-            df["year"] = year
-            df["season"] = str(year)
-            df["season_type"] = season_type
-            df["team_vs"] = opp
-            df["playoffs"] = int(playoffs)
-            if "Corner3FGM" not in df.columns:
-                df["Corner3FGM"] = 0
+    if not failed_requests:
+        return []
 
-            if len(df) > 2:
-                df.to_csv(filepath, index=False)
-                print(f"  Saved {filename} ({len(df)} rows)")
-            else:
-                print(f"  Skipped {filename} (only {len(df)} rows)")
+    print(
+        f"\nRetrying {len(failed_requests)} failed {season_label} / {tag} "
+        f"request(s) after {BLOCK_RETRY_DELAY}s..."
+    )
+    time.sleep(BLOCK_RETRY_DELAY)
+    unresolved = []
+    for team_id, opp in failed_requests:
+        side = "Opponent" if opp else "Team"
+        if fetch_and_write(team_id, opp, "RETRY FAILED"):
+            print(f"  RECOVERED {team_id} ({side})")
+        else:
+            unresolved.append((team_id, side))
 
-            time.sleep(nba_fetch.SLEEP_BETWEEN)
-
-    return fail_list
+    return unresolved
 
 
 def main():
@@ -169,18 +198,25 @@ def main():
         default=[],
         help="Optional WNBA PBPStats team id to fetch. Repeat or comma-separate for smoke tests.",
     )
+    parser.add_argument(
+        "--include-playoffs",
+        action="store_true",
+        help="Also fetch playoff splits. Regular season only by default.",
+    )
     args = parser.parse_args()
     year = args.year or current_wnba_season()
     team_ids = parse_team_ids(args.team_id)
+    seasons = season_plan(args.include_playoffs)
 
     nba_fetch.WOWY_URL = WNBA_WOWY_URL
     print(f"=== WNBA PBPStats On-Off Fetch: {year} season ===\n")
     print(f"Teams: {', '.join(str(team_id) for team_id in team_ids)}")
-    print(f"Will make ~{len(team_ids) * 2 * 2 * 2} calls before date splits.\n")
+    print(f"Season types: {', '.join(season_type for season_type, _ in seasons)}")
+    print(f"Will make ~{len(team_ids) * 2 * 2 * len(seasons)} calls before date splits.\n")
 
     start = time.time()
     all_fails = []
-    for season_type, playoffs in (("Regular Season", False), ("Playoffs", True)):
+    for season_type, playoffs in seasons:
         for leverage in (True, False):
             all_fails.extend(
                 pull_block(team_ids, year, season_type=season_type, playoffs=playoffs, leverage=leverage)

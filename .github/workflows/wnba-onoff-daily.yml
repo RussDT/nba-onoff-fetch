@@ -8,6 +8,10 @@ on:
       year:
         description: 'WNBA season year (auto-detects if empty)'
         default: ''
+      include_playoffs:
+        description: 'Also fetch WNBA playoff splits'
+        type: boolean
+        default: false
 
 jobs:
   fetch:
@@ -32,7 +36,18 @@ jobs:
           fi
 
       - name: Fetch WNBA on-off data
-        run: python fetch_wnba_onoff.py ${{ inputs.year && format('--year {0}', inputs.year) || '' }}
+        env:
+          INPUT_YEAR: ${{ inputs.year }}
+          INCLUDE_PLAYOFFS: ${{ inputs.include_playoffs || vars.WNBA_INCLUDE_PLAYOFFS == 'true' }}
+        run: |
+          args=()
+          if [[ -n "$INPUT_YEAR" ]]; then
+            args+=(--year "$INPUT_YEAR")
+          fi
+          if [[ "$INCLUDE_PLAYOFFS" == "true" ]]; then
+            args+=(--include-playoffs)
+          fi
+          python fetch_wnba_onoff.py "${args[@]}"
 
       - uses: actions/upload-artifact@v4
         with:

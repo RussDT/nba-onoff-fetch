@@ -39,6 +39,19 @@ The `Monitor WNBA Player Artifact Freshness`
 workflow checks the committed CSV, metadata timestamp, row count, and hash twice
 daily and fails once the artifact is more than 30 hours old.
 
+## WNBA on/off schedule
+
+`Daily WNBA On-Off Fetch` requests regular-season splits by default. Playoff
+splits are opt-in so an empty, not-yet-started postseason cannot delay or fail
+the daily regular-season artifact. Enable them with the `include_playoffs`
+manual-dispatch input or by setting the repository variable
+`WNBA_INCLUDE_PLAYOFFS=true` when the postseason begins.
+
+Every PBPStats request keeps the shared five-attempt retry policy. If a request
+still fails, the WNBA fetch makes one recovery pass after finishing that block;
+only requests that also fail the recovery pass make the workflow fail. Partial
+artifacts remain fail-closed and are never uploaded as a successful run.
+
 ## Current 2026 State
 
 This repo now freezes the completed regular-season snapshot and publishes playoff on-off files for the 2025-26 postseason handoff.
