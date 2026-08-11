@@ -1,9 +1,9 @@
 {
-  "generated_at_utc": "2026-08-10T12:15:22.071248+00:00",
+  "generated_at_utc": "2026-08-11T12:15:19.257349+00:00",
   "season": 2026,
   "season_type": "Regular Season",
   "row_count": 224,
-  "sha256": "f729fa54549c4749ecd2085a6bf55977b858f5c6dbcaf49e993c344f6f41263b",
+  "sha256": "8ec2f0c061541521e33f794c7c020bd59db8fac0df1e0e70f3b365ae17678944",
   "advanced_source": "api.pbpstats.com/get-totals/wnba",
   "minutes_source": "stats.wnba.com/stats/leaguedashplayerstats",
   "positions_source": "stats.wnba.com/stats/playerindex",
@@ -14,9 +14,9 @@
     "official_only_player_ids": []
   },
   "league_minutes_reconciliation": {
-    "completed_games": 242,
+    "completed_games": 244,
     "overtime_periods": 13,
-    "official_player_minutes": 97449.58333333334,
-    "expected_player_minutes": 97450.0
+    "official_player_minutes": 98249.58333333334,
+    "expected_player_minutes": 98250.0
   }
 }
