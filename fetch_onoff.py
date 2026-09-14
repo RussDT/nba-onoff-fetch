@@ -3,14 +3,20 @@ PBPStats On-Off Fetch
 =====================
 Fetches WOWY (With Or Without You) data from PBPStats API for all NBA teams.
 
-Two blocks of calls:
+Four blocks of calls:
+  RS leverage: Leverage='Medium,High,VeryHigh' -> {team_id}_leverage.csv, {team_id}_vs_leverage.csv
+  RS non-leverage: No Leverage param -> {team_id}.csv, {team_id}_vs.csv
   PS leverage: Leverage='Medium,High,VeryHigh' -> {team_id}_ps_leverage.csv, {team_id}_vs_ps_leverage.csv
   PS non-leverage: No Leverage param -> {team_id}_ps.csv, {team_id}_vs_ps.csv
 
-Each block: 30 teams x 2 (Team + Opponent) = 60 calls. Total: 120 calls.
+Each block: 30 teams x 2 (Team + Opponent) = 60 calls. Total: 240 calls.
 Teams that hit the 500-row API cap get automatic date-split re-fetches.
 
 Output:
+  output/data/{year}/{team_id}.csv
+  output/data/{year}/{team_id}_vs.csv
+  output/data/{year}/{team_id}_leverage.csv
+  output/data/{year}/{team_id}_vs_leverage.csv
   output/data/{year}/{team_id}_ps.csv
   output/data/{year}/{team_id}_vs_ps.csv
   output/data/{year}/{team_id}_ps_leverage.csv
@@ -51,6 +57,7 @@ INDEX_MASTER_URL = (
 )
 REFERENCE_YEAR = 2025  # Always use this year's teams for team list
 ROW_CAP = 500  # PBPStats API row limit
+REGULAR_SEASON_TYPE = "Regular Season"
 PLAYOFFS_SEASON_TYPE = "Playoffs"
 
 HEADERS = {
@@ -383,6 +390,19 @@ def get_filename(team_id, opp=False, leverage=False, playoffs=False):
     return name
 
 
+def season_configs_for_scope(scope):
+    """Return the season blocks included in an artifact run."""
+    configs = {
+        "both": [
+            (REGULAR_SEASON_TYPE, False),
+            (PLAYOFFS_SEASON_TYPE, True),
+        ],
+        "regular": [(REGULAR_SEASON_TYPE, False)],
+        "playoffs": [(PLAYOFFS_SEASON_TYPE, True)],
+    }
+    return configs[scope]
+
+
 # ---------------------------------------------------------------------------
 # Fetch block
 # ---------------------------------------------------------------------------
@@ -453,21 +473,25 @@ def pull_block(team_ids, year, season_type, playoffs=False, leverage=False):
 def main():
     parser = argparse.ArgumentParser(description="Fetch PBPStats on-off data")
     parser.add_argument("--year", type=int, default=None, help="Season year (auto-detects if omitted)")
+    parser.add_argument(
+        "--season-scope",
+        choices=("both", "regular", "playoffs"),
+        default="both",
+        help="Season blocks to publish (default: both)",
+    )
     args = parser.parse_args()
 
     year = args.year or current_nba_season()
     print(f"=== PBPStats On-Off Fetch: {year - 1}-{str(year)[-2:]} season ===\n")
 
     team_ids = fetch_team_ids()
-    total_calls = len(team_ids) * 2 * 2 * 2  # teams * sides * leverage blocks * season types
+    season_configs = season_configs_for_scope(args.season_scope)
+    total_calls = len(team_ids) * 2 * 2 * len(season_configs)
     print(f"Will make ~{total_calls}+ API calls (more if teams hit {ROW_CAP}-row cap)\n")
 
     start = time.time()
 
     all_fails = []
-    season_configs = [
-        (PLAYOFFS_SEASON_TYPE, True),
-    ]
     block_num = 1
     for season_type, playoffs in season_configs:
         for leverage in (True, False):

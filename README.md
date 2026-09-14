@@ -54,17 +54,22 @@ artifacts remain fail-closed and are never uploaded as a successful run.
 
 ## Current 2026 State
 
-This repo now freezes the completed regular-season snapshot and publishes playoff on-off files for the 2025-26 postseason handoff.
+This repo publishes complete regular-season and playoff on/off files for the 2025-26 season.
 
-- The on/off fetch path now uses `SeasonType=Playoffs` only and writes `_ps` filenames into the daily artifact.
+- Regular-season on/off files are refreshed with the date-split recovery path whenever PBPStats returns its 500-row cap.
+- Playoff on/off files use `SeasonType=Playoffs` and write `_ps` filenames into the same artifact.
 - Regular-season season totals use `SeasonType=Regular Season`.
 - Playoff season totals use `SeasonType=Playoffs`.
 - The `season-totals-daily` workflow runs daily again so both RS and PS totals stay current.
 
 ## Important Warning
 
-The daily on-off artifact now contains playoff files only:
+The daily on-off artifact contains both regular-season and playoff files:
 
+- `{team_id}.csv`
+- `{team_id}_vs.csv`
+- `{team_id}_leverage.csv`
+- `{team_id}_vs_leverage.csv`
 - `{team_id}_ps.csv`
 - `{team_id}_vs_ps.csv`
 - `{team_id}_ps_leverage.csv`

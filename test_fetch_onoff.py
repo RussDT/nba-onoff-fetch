@@ -2,10 +2,20 @@ import unittest
 
 import pandas as pd
 
+import fetch_onoff
 from fetch_onoff import _combine_split_halves
 
 
 class CombineSplitHalvesTests(unittest.TestCase):
+    def test_default_artifact_includes_regular_season_and_playoffs(self):
+        self.assertEqual(
+            fetch_onoff.season_configs_for_scope("both"),
+            [
+                ("Regular Season", False),
+                ("Playoffs", True),
+            ],
+        )
+
     def test_preserves_team_id_and_groups_by_entity(self):
         first_half = pd.DataFrame(
             [
