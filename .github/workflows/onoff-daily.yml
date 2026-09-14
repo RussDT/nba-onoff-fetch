@@ -22,6 +22,9 @@ jobs:
 
       - run: pip install requests pandas
 
+      - name: Test NBA on-off artifact contract
+        run: python -m unittest test_fetch_onoff.py -v
+
       - name: Detect season year
         id: season
         run: python -c "from fetch_onoff import current_nba_season; print(f'year={current_nba_season()}')" >> "$GITHUB_OUTPUT"
